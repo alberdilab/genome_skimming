@@ -61,7 +61,7 @@ rule simplify_reads:
         r1="reads/{sample}_1.fq",
         r2="reads/{sample}_2.fq"
     output:
-        "reads/{sample}.fq"
+        "reads/{sample}/{sample}.fq"
     log:
         "logs/decompress_fastq/{sample}.log"
     threads: 1
@@ -69,12 +69,33 @@ rule simplify_reads:
     shell:
         """
         rm {input.r2}
-        mv {input.r2} {output}
+        mv {input.r1} {output}
         """
 
-rule skmer:
+rule skmer_reference:
     input:
-        expand("reads/{sample}.fq", sample=SAMPLES)
+        "reads/{sample}/{sample}.fq"
+    output:
+        "library/{sample}/{sample}.dat"
+    log:
+        "logs/skmer/skmer.log"
+    threads: 1
+    conda:
+        "envs/skmer.yml"
+    params:
+        inputdir="reads/{sample}",
+        outputbase="library/{sample}"
+    resources:
+        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
+        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 50) * 2 ** (attempt - 1))
+    shell:
+        """
+        skmer reference {params.inputdir} -p {threads} -l {params.outputbase}
+        """
+
+rule skmer_distance:
+    input:
+        expand("library/{sample}/{sample}.dat", sample=SAMPLES)
     output:
         "distance_matrix.txt"
     log:
@@ -83,13 +104,12 @@ rule skmer:
     conda:
         "envs/skmer.yml"
     params:
-        inputdir="reads",
+        inputdir="library",
         outputbase="distance_matrix"
     resources:
         mem_mb=lambda wildcards, input, attempt: max(64*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
         runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 50) * 2 ** (attempt - 1))
     shell:
         """
-        rm {params.inputdir}/*_2.fq
         skmer reference {params.inputdir} -p {threads} -o {params.outputbase}
         """
