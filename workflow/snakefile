@@ -12,7 +12,7 @@ if not SAMPLES_bams and SAMPLES_reads:
     print("Using bam files for the genome skimming")
     SAMPLES=SAMPLES_reads
 
-if not SAMPLES_bams and not SAMPLES_reads::
+if not SAMPLES_bams and not SAMPLES_reads:
     sys.exit(f"❌  No input data was provided in the reads or bams directories")
 
 # Generate output
@@ -58,7 +58,7 @@ rule decompress_fastq:
 
 rule skmer:
     input:
-        expand("results/reads/{sample}_1.fq.gz", sample=SAMPLES)
+        expand("reads/{sample}_1.fq", sample=SAMPLES)
     output:
         "distance_matrix.txt"
     log:

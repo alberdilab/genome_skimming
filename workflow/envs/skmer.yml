@@ -2,5 +2,5 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - numpy=1.2.6
+  - numpy=1.26.4
   - skmer=3.3.0
