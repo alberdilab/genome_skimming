@@ -9,7 +9,7 @@ Clone this repository and rename the main directory as wished. Replace [project_
 ```
 screen -S [project_name]
 git clone https://github.com/alberdilab/genome_skimming
-mv genomics [project_name]
+mv genome_skimming [project_name]
 cd [project_name]
 ```
 
@@ -24,7 +24,7 @@ git clone --depth 1 --branch v7.2.0 https://github.com/snakemake/snakemake-wrapp
 Prepare sequencing reads or mapped bam files.
 
 - **reads**: add sequencing reads to the **reads** directory.
-- **reads**: add bam files to the **mapped** directory.
+- **bams**: add bam files to the **mapped** directory.
 
 ## 3. Launch pipeline
 
