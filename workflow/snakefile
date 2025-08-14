@@ -1,371 +1,78 @@
 from pathlib import Path
 
 # Detect reads
-SAMPLES_reads = sorted({f.stem.rsplit("_", 1)[0] for f in Path("resources/reads").glob("*_1.fq.gz")})
-SAMPLES_bams = sorted({f.stem.rsplit("_", 1)[0] for f in Path("resources/bams").glob("*.bam")})
-
-# Detect reference genome
-ref_hits = sorted(Path("resources/reference").glob("*.fna.gz"))
+SAMPLES_reads = sorted({f.stem.rsplit("_", 1)[0] for f in Path("reads").glob("*_1.fq.gz")})
+SAMPLES_bams = sorted({f.stem.rsplit("_", 1)[0] for f in Path("mapped").glob("*.bam")})
 
 if not SAMPLES_reads and SAMPLES_bams:
     print("Using sequencing reads for the genome skimming")
+    SAMPLES=SAMPLES_bams
 
 if not SAMPLES_bams and SAMPLES_reads:
     print("Using bam files for the genome skimming")
+    SAMPLES=SAMPLES_reads
 
 if not SAMPLES_bams and not SAMPLES_reads::
     sys.exit(f"❌  No input data was provided in the reads or bams directories")
 
-REF_FASTA_GZ = ref_hits[0]
-
 # Generate output
 rule all:
     input:
-        "results/genotypes/all.vcf.gz"
+        "distance_matrix.txt"
 
 # Rules
-rule fastp:
+rule bam_to_fastq:
     input:
-        sample=["resources/reads/{sample}_1.fq.gz", "resources/reads/{sample}_2.fq.gz"]
+        "mapped/{sample}.bam"
     output:
-        trimmed=["results/fastp/{sample}_1.fq.gz", "results/fastp/{sample}_2.fq.gz"],
-        html="results/fastp/{sample}.html",
-        json="results/fastp/{sample}.json"
+        r1="reads/{sample}_1.fq",
+        r2="reads/{sample}_2.fq"
     log:
-        "logs/fastp/{sample}.log"
-    params:
-        adapters="--adapter_sequence AGATCGGAAGAGCACACGTCTGAACTCCAGTCA --adapter_sequence_r2 AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-        extra="--trim_poly_g --trim_poly_g --trim_poly_x --low_complexity_filter --n_base_limit 5 --qualified_quality_phred 20 --length_required 60"
+        "logs/bam_to_fastq/{sample}.log"
     threads: 4
+    params:
+        collate="",
+        fastq="-n",
     resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 5) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 1024 * 3) * 2 ** (attempt - 1))
+        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb) * 2 ** (attempt - 1)),
+        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
     wrapper:
-        "v7.2.0/bio/fastp"
+        "v7.2.0/bio/samtools/fastq/separate"
 
-rule decompress_reference:
+rule decompress_fastq:
     input:
-        REF_FASTA_GZ
+        r1="reads/{sample}_1.fq.gz",
+        r2="reads/{sample}_2.fq.gz"
     output:
-        "resources/reference/reference.fna"
+        r1="reads/{sample}_1.fq",
+        r2="reads/{sample}_2.fq"
+    log:
+        "logs/decompress_fastq/{sample}.log"
     threads: 1
     localrule: True
     shell:
-        "gunzip -c {input} > {output}"
+        """
+        gunzip -c {input.r1} > {output.r1}
+        gunzip -c {input.r2} > {output.r2}
+        """
 
-rule bowtie2_build:
+rule skmer:
     input:
-        ref="resources/reference/reference.fna"
+        expand("results/reads/{sample}_1.fq.gz", sample=SAMPLES)
     output:
-        multiext(
-            "resources/reference/reference",
-            ".1.bt2",
-            ".2.bt2",
-            ".3.bt2",
-            ".4.bt2",
-            ".rev.1.bt2",
-            ".rev.2.bt2",
-        )
+        "distance_matrix.txt"
     log:
-        "logs/bowtie2_build/bowtie2_build.log"
-    threads: 1
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/bowtie2/build"
-
-rule create_dict:
-    input:
-        "resources/reference/reference.fna"
-    output:
-        "resources/reference/reference.dict"
-    log:
-        "logs/picard/create_dict.log"
-    threads: 1
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/picard/createsequencedictionary"
-
-rule bowtie2:
-    input:
-        sample=["results/fastp/{sample}_1.fq.gz", "results/fastp/{sample}_2.fq.gz"],
-        idx=multiext(
-            "resources/reference/reference",
-            ".1.bt2",
-            ".2.bt2",
-            ".3.bt2",
-            ".4.bt2",
-            ".rev.1.bt2",
-            ".rev.2.bt2",
-        )
-    output:
-        "results/bowtie2/{sample}.bam"
-    log:
-        "logs/bowtie2/{sample}.log"
-    threads: 16
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 5) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/bowtie2/align"
-
-rule replace_rg:
-    input:
-        "results/bowtie2/{sample}.bam"
-    output:
-        "results/replace_rg/{sample}.bam"
-    log:
-        "logs/replace_rg/{sample}.log",
-    params:
-        extra="--RGLB lib1 --RGPL illumina --RGPU {sample} --RGSM {sample}"
-    threads: 1
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/picard/addorreplacereadgroups"
-
-rule samtools_sort:
-    input:
-        "results/replace_rg/{sample}.bam",
-    output:
-        "results/sorted/{sample}.bam",
-    log:
-        "logs/sort/{sample}.log",
-    params:
-        extra="-m 64G"
-    threads: 1
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/samtools/sort"
-
-rule picard:
-    input:
-        bams="results/sorted/{sample}.bam"
-    output:
-        bam="results/picard/{sample}.bam",
-        metrics="results/picard/{sample}.tsv"
-    log:
-        "logs/picard/{sample}.log"
-    params:
-        extra="--REMOVE_DUPLICATES true"
+        "logs/skmer/skmer.log"
     threads: 8
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/picard/markduplicates"
-
-rule samtools_index:
-    input:
-        "results/picard/{sample}.bam"
-    output:
-        "results/picard/{sample}.bai"
-    log:
-        "logs/samtools_index/{sample}.log",
-    threads: 1
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/samtools/index"
-
-rule samtools_faidx:
-    input:
-        "resources/reference/reference.fna",
-    output:
-        "resources/reference/reference.fna.fai"
-    log:
-        "logs/faidx/reference.log"
-    threads: 1
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/samtools/faidx"
-
-checkpoint create_regions:
-    input:
-        "resources/reference/reference.fna"
-    output:
-        "resources/reference/reference.bed"
-    log:
-        "logs/regions/regions.log"
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 5) * 2 ** (attempt - 1)),
-        runtime=60
     conda:
-        "envs/seqkit.yml"
-    shell:
-        """
-        seqkit fx2tab -l -n {input} \
-          | awk '{{print $1"\t0\t"$2"\t"$1}}' \
-          > {output}
-        """
-
-def region_list(wildcards):
-    bed = checkpoints.create_regions.get().output[0]
-    regions = []
-    with open(bed) as fh:
-        for chrom, start, end, *_ in map(str.split, fh):
-            regions.append(f"{chrom}")
-    return regions
-
-rule bcftools:
-    input:
-        bam=expand("results/picard/{sample}.bam", sample=SAMPLES),
-        bai=expand("results/picard/{sample}.bai", sample=SAMPLES),
-        fasta="resources/reference/reference.fna",
-        fai="resources/reference/reference.fna.fai"
-    output:
-        "resources/reference/regions/{region}.bcf"
-    log:
-        "logs/bcftools/{region}.log"
-    resources:
-        mem_mb=lambda wildcards, input, attempt: 16 * 1024 * 2 ** (attempt - 1),
-        runtime=lambda wildcards, input, attempt: 6 * 60 * 2 ** (attempt - 1)
-
-    conda:
-        "envs/bcftools.yml"
-    shell:
-        """
-        ( bcftools mpileup \
-            --fasta-ref {input.fasta} \
-            --output-type u \
-            --region {wildcards.region} \
-            {input.bam} \
-        | bcftools call \
-            --multiallelic-caller \
-            --variants-only \
-            --output-type u \
-        | bcftools filter \
-            --include 'QUAL > 30' \
-            --output-type b \
-            --output {output} \
-        ) 2> {log}
-        """
-
-rule bcftools_concat:
-    input:
-        calls=expand("resources/reference/regions/{region}.bcf",region=region_list)
-    output:
-        "resources/reference/reference.vcf.gz"
-    log:
-        "logs/bcftools_concat/bcftools_concat.log",
+        "envs/skmer.yml"
     params:
-        extra=""
-    threads: 4
+        inputdir="reads",
+        outputbase="distance_matrix"
     resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
+        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb) * 2 ** (attempt - 1)),
         runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
     wrapper:
-        "v7.2.0/bio/bcftools/concat"
-
-rule IndexFeatureFile:
-    input:
-        "resources/reference/reference.vcf.gz"
-    output:
-        "resources/reference/reference.vcf.gz.tbi"
-    log:
-        "logs/bcftools/IndexFeatureFile.log"
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    conda:
-        "envs/gatk.yml"
-    shell:
         """
-        gatk IndexFeatureFile --input {input}
+        skmer reference {params.inputdir} -p {threads} -o {params.outputbase}
         """
-
-rule gatk_baserecalibrator:
-    input:
-        bam="results/picard/{sample}.bam",
-        ref="resources/reference/reference.fna",
-        dict="resources/reference/reference.dict",
-        known="resources/reference/reference.vcf.gz",
-        index="resources/reference/reference.vcf.gz.tbi"
-    output:
-        recal_table="results/recal/{sample}.grp",
-    log:
-        "logs/baserecalibrator/{sample}.log",
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/gatk/baserecalibrator"
-
-rule gatk_applybqsr:
-    input:
-        bam="results/picard/{sample}.bam",
-        ref="resources/reference/reference.fna",
-        dict="resources/reference/reference.dict",
-        recal_table="results/recal/{sample}.grp"
-    output:
-        bam="results/recal/{sample}.bam"
-    log:
-        "logs/gatk_applybqsr/{sample}.log",
-    params:
-        extra="",  # optional
-        java_opts="",  # optional
-        embed_ref=True,  # embed the reference in cram output
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/gatk/applybqsr"
-
-rule haplotype_caller_gvcf:
-    input:
-        bam="results/recal/{sample}.bam",
-        ref="resources/reference/reference.fna",
-        fai="resources/reference/reference.fna.fai",
-        dict="resources/reference/reference.dict"
-    output:
-        gvcf="results/haplotypecaller/{sample}.gvcf.gz"
-    log:
-        "logs/haplotypecaller/{sample}.log"
-    params:
-        extra="",
-        java_opts=""
-    threads: 4
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/gatk/haplotypecaller"
-
-rule combine_gvcfs:
-    input:
-        gvcfs = lambda wc: expand(
-            "results/haplotypecaller/{sample}.gvcf.gz",
-            sample = SAMPLES),
-        ref="resources/reference/reference.fna"
-    output:
-        gvcf="results/haplotypecaller/all.vcf.gz"
-    log:
-        "logs/gcombinegvcfs/gcombinegvcfs.log"
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(8*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/gatk/combinegvcfs"
-
-rule genotype_gvcfs:
-    input:
-        gvcf="results/haplotypecaller/all.vcf.gz",
-        ref="resources/reference/reference.fna"
-    output:
-        vcf="results/genotypes/all.vcf.gz"
-    log:
-        "logs/genotype/genotype.log"
-    resources:
-        mem_mb=lambda wildcards, input, attempt: max(64*1024, int(input.size_mb) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 50) * 2 ** (attempt - 1))
-    wrapper:
-        "v7.2.0/bio/gatk/genotypegvcfs"

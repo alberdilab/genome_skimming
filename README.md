@@ -1,2 +1,3 @@
-# genome_skimming
-Pipeline for genome skimming
+# Genome skimming
+
+Pipeline for genome skimming from fastq or bam files
