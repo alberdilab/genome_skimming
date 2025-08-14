@@ -56,9 +56,25 @@ rule decompress_fastq:
         gunzip -c {input.r2} > {output.r2}
         """
 
+rule simplify_reads:
+    input:
+        r1="reads/{sample}_1.fq",
+        r2="reads/{sample}_2.fq"
+    output:
+        "reads/{sample}.fq"
+    log:
+        "logs/decompress_fastq/{sample}.log"
+    threads: 1
+    localrule: True
+    shell:
+        """
+        rm {input.r2}
+        mv {input.r2} {output}
+        """
+
 rule skmer:
     input:
-        expand("reads/{sample}_1.fq", sample=SAMPLES)
+        expand("reads/{sample}.fq", sample=SAMPLES)
     output:
         "distance_matrix.txt"
     log:
@@ -70,9 +86,10 @@ rule skmer:
         inputdir="reads",
         outputbase="distance_matrix"
     resources:
-        mem_mb=lambda wildcards, input, attempt: max(64*1024, int(input.size_mb * 20) * 2 ** (attempt - 1)),
-        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
+        mem_mb=lambda wildcards, input, attempt: max(64*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
+        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 50) * 2 ** (attempt - 1))
     shell:
         """
+        rm {params.inputdir}/*_2.fq
         skmer reference {params.inputdir} -p {threads} -o {params.outputbase}
         """
