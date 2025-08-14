@@ -26,9 +26,16 @@ Prepare sequencing reads or mapped bam files.
 - **reads**: add sequencing reads to the **reads** directory.
 - **reads**: add bam files to the **mapped** directory.
 
-
-## Launch pipeline
+## 3. Launch pipeline
 
 ```
 snakemake --workflow-profile profile/slurm
+```
+
+## 4. View results
+
+The final output is a single file called **distance_matrix.txt**.
+
+```
+head distance_matrix.txt
 ```
