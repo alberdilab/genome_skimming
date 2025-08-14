@@ -100,7 +100,7 @@ rule skmer_distance:
         "distance_matrix.txt"
     log:
         "logs/skmer/skmer.log"
-    threads: 8
+    threads: 1
     conda:
         "envs/skmer.yml"
     params:
