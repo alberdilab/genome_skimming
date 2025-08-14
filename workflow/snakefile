@@ -70,7 +70,7 @@ rule skmer:
         inputdir="reads",
         outputbase="distance_matrix"
     resources:
-        mem_mb=lambda wildcards, input, attempt: max(64*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
+        mem_mb=lambda wildcards, input, attempt: max(64*1024, int(input.size_mb * 20) * 2 ** (attempt - 1)),
         runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 20) * 2 ** (attempt - 1))
     shell:
         """
