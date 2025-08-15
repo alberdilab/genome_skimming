@@ -19,7 +19,8 @@ if not SAMPLES_bams and not SAMPLES_reads:
 rule all:
     input:
         "distance_matrix.txt",
-        "distance.png"
+        "pcoa.png",
+        "heatmap.png"
 
 # Rules
 rule bam_to_fastq:
@@ -115,13 +116,13 @@ rule skmer_distance:
         skmer distance {params.inputdir} -p {threads} -o {params.outputbase}
         """
 
-rule skmer_distance:
+rule skmer_pcoa:
     input:
         "distance_matrix.txt"
     output:
-        "distance.png"
+        "pcoa.png"
     log:
-        "logs/skmer/distance.log"
+        "logs/skmer/pcoa.log"
     threads: 1
     conda:
         "envs/plot.yml"
@@ -132,5 +133,25 @@ rule skmer_distance:
         runtime=lambda wildcards, input, attempt: 5
     shell:
         """
-        python scripts/pcoa_from_distance.py --dist {input} --out-prefix distance
+        python workflow/scripts/pcoa_from_distance.py --dist {input} --out-prefix distance
+        """
+
+rule skmer_heatmap:
+    input:
+        "distance_matrix.txt"
+    output:
+        "heatmap.png"
+    log:
+        "logs/plots/heatmap.log"
+    threads: 1
+    conda:
+        "envs/plot.yml"
+    params:
+        outputbase="distance_matrix"
+    resources:
+        mem_mb=lambda wildcards, input, attempt: 4*1024,
+        runtime=lambda wildcards, input, attempt: 5
+    shell:
+        """
+        python workflow/scripts/heatmap_from_distance.py --dist {input} --out {output}
         """

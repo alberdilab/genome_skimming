@@ -1,4 +1,3 @@
-name: pcoa
 channels:
   - conda-forge
   - bioconda
@@ -8,3 +7,4 @@ dependencies:
   - numpy
   - pandas
   - matplotlib
+  - scipy
