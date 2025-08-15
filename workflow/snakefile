@@ -20,7 +20,8 @@ rule all:
     input:
         "distance_matrix.txt",
         "pcoa.png",
-        "heatmap.png"
+        "heatmap.png",
+        "depth.tsv"
 
 # Rules
 rule bam_to_fastq:
@@ -116,6 +117,24 @@ rule skmer_distance:
         skmer distance {params.inputdir} -p {threads} -o {params.outputbase}
         """
 
+rule seq_depth:
+    input:
+        expand("reads/{sample}/{sample}.fq", sample=SAMPLES)
+    output:
+        "depth.tsv"
+    log:
+        "logs/seq_depth/seq_depth.log"
+    threads: 1
+    conda:
+        "envs/plot.yml"
+    resources:
+        mem_mb=lambda wildcards, input, attempt: max(64*1024, int(input.size_mb * 10) * 2 ** (attempt - 1)),
+        runtime=lambda wildcards, input, attempt: max(15, int(input.size_mb / 50) * 2 ** (attempt - 1))
+    shell:
+        """
+        python workflow/scripts/reads_per_sample.py --out {output} {input}
+        """
+
 rule skmer_pcoa:
     input:
         "distance_matrix.txt"
@@ -133,7 +152,7 @@ rule skmer_pcoa:
         runtime=lambda wildcards, input, attempt: 5
     shell:
         """
-        python workflow/scripts/pcoa_from_distance.py --dist {input} --out-prefix distance
+        python workflow/scripts/pcoa_from_distance.py --dist {input} --out-prefix pcoa
         """
 
 rule skmer_heatmap:

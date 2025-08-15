@@ -2,23 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-Make a clustered heatmap (with row/column dendrograms) from a square distance matrix.
+Clustered heatmap (with row/column dendrograms) from a square distance matrix.
 
-Inputs
-------
---dist: square, symmetric distance matrix (TSV/CSV/whitespace-delimited)
-        header row = sample IDs; first column = the same sample IDs.
+- Color scale defaults to [0, max off-diagonal distance].
+- Sample names are shown on BOTH axes by default (use --no-ticklabels to hide).
 
-Outputs
--------
---out: path to the figure file (png/pdf/svg)
-
-Example
--------
-python heatmap_from_distance.py \
+Example:
+python heatmap_hclust_figure.py \
   --dist data/distances.tsv \
   --out results/hclust/ehi.heatmap.png \
-  --method average --optimal-ordering --title "EHI distance – hclust"
+  --method average --optimal-ordering \
+  --title "EHI distance – hclust"
 """
 
 import argparse
@@ -37,17 +31,20 @@ from scipy.spatial.distance import squareform
 
 def read_distance_matrix(path: str) -> pd.DataFrame:
     """Load a square distance matrix with sample IDs both as columns and index."""
+    df = None
     for sep, kw in [("\t", {}), (",", {}), (r"\s+", {"engine": "python"})]:
         try:
-            df = pd.read_csv(path, sep=sep, index_col=0, **kw)
-            if len(set(df.index) & set(df.columns)) > max(1, len(df)//2):
+            tmp = pd.read_csv(path, sep=sep, index_col=0, **kw)
+            # Heuristic: index/columns should largely overlap
+            if len(set(tmp.index) & set(tmp.columns)) > max(1, len(tmp)//2):
+                df = tmp
                 break
         except Exception:
-            df = None
+            pass
     if df is None or df.empty:
         raise ValueError(f"Could not read distance matrix from: {path}")
 
-    # Align rows/columns to intersection (handles stray tokens like 'le' in top-left)
+    # Align rows/cols to intersection (handles stray token like 'le' in top-left)
     if not df.columns.equals(df.index):
         common = [s for s in df.index if s in df.columns]
         if len(common) < 2:
@@ -57,6 +54,7 @@ def read_distance_matrix(path: str) -> pd.DataFrame:
     if df.shape[0] != df.shape[1]:
         raise ValueError("Distance matrix is not square.")
 
+    # Numeric + sanity checks
     df = df.apply(pd.to_numeric, errors="coerce")
     if df.isna().any().any():
         raise ValueError("Non-numeric values detected in distance matrix.")
@@ -70,6 +68,7 @@ def read_distance_matrix(path: str) -> pd.DataFrame:
         v = df.values.copy()
         np.fill_diagonal(v, 0.0)
         df = pd.DataFrame(v, index=df.index, columns=df.columns)
+
     return df
 
 # -------- Plotting --------
@@ -90,14 +89,13 @@ def plot_clustered_heatmap(dist: pd.DataFrame,
 
     # Reorder matrix
     dist_re = dist.iloc[row_leaves, :].iloc[:, col_leaves]
-
     n = dist_re.shape[0]
-    # Scale figure parts with n, with sane limits
+
+    # Figure geometry scales with n but caps to avoid monster figures
     heat_size = min(max(4, 0.25 * n), 12)     # inches
     dend_size = min(max(1.5, 0.08 * n), 3.5)  # inches
-    cbar_size = 0.4
 
-    fig = plt.figure(figsize=(dend_size + heat_size + cbar_size + 0.6,
+    fig = plt.figure(figsize=(dend_size + heat_size + 0.8,
                               dend_size + heat_size + 0.6))
     gs = gridspec.GridSpec(nrows=2, ncols=2,
                            width_ratios=[dend_size, heat_size],
@@ -120,7 +118,8 @@ def plot_clustered_heatmap(dist: pd.DataFrame,
     ax_heat = fig.add_subplot(gs[1, 1])
     im = ax_heat.imshow(dist_re.values, aspect="auto", origin="lower",
                         interpolation="nearest", cmap=cmap, vmin=vmin, vmax=vmax)
-    if show_ticks and n <= 60:
+
+    if show_ticks:
         ax_heat.set_xticks(np.arange(n))
         ax_heat.set_xticklabels(dist_re.columns, rotation=90, fontsize=7)
         ax_heat.set_yticks(np.arange(n))
@@ -128,13 +127,11 @@ def plot_clustered_heatmap(dist: pd.DataFrame,
     else:
         ax_heat.set_xticks([])
         ax_heat.set_yticks([])
+
     ax_heat.set_title(title, fontsize=10, pad=6)
 
-    # Colorbar
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-    divider = make_axes_locatable(ax_heat)
-    cax = divider.append_axes("right", size=f"{cbar_size}in", pad=0.05)
-    cb = fig.colorbar(im, cax=cax)
+    # Robust colorbar (avoids axes_grid1 sizing issues)
+    cb = fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
     cb.set_label("Distance", rotation=90)
 
     fig.tight_layout()
@@ -142,8 +139,10 @@ def plot_clustered_heatmap(dist: pd.DataFrame,
     fig.savefig(out_path, dpi=180)
     plt.close(fig)
 
+# -------- Main --------
+
 def main():
-    ap = argparse.ArgumentParser(description="Clustered heatmap (only figure) from a distance matrix.")
+    ap = argparse.ArgumentParser(description="Clustered heatmap (figure only) from a distance matrix.")
     ap.add_argument("--dist", required=True, help="Path to square distance matrix (TSV/CSV/space).")
     ap.add_argument("--out", required=True, help="Output figure path (.png/.pdf/.svg).")
     ap.add_argument("--method", default="average",
@@ -153,26 +152,43 @@ def main():
     ap.add_argument("--optimal-ordering", action="store_true",
                     help="Use optimal leaf ordering (prettier, a bit slower).")
     ap.add_argument("--cmap", default="viridis", help="Matplotlib colormap name.")
-    ap.add_argument("--vmin", type=float, help="Color scale minimum.")
-    ap.add_argument("--vmax", type=float, help="Color scale maximum.")
+    ap.add_argument("--vmin", type=float, help="Color scale minimum. Default: 0.")
+    ap.add_argument("--vmax", type=float, help="Color scale maximum. Default: max off-diagonal.")
     ap.add_argument("--title", default="Hierarchical clustering heatmap")
-    ap.add_argument("--no-ticklabels", action="store_true", help="Hide tick labels (good for large n).")
+    ap.add_argument("--no-ticklabels", action="store_true",
+                    help="Hide tick labels (useful for very large matrices).")
     args = ap.parse_args()
 
+    # Load distances
     dist_df = read_distance_matrix(args.dist)
-    D = dist_df.values.astype(float)
-    condensed = squareform(D, checks=False)  # symmetry already validated
+    A = dist_df.values.astype(float)
+    n = A.shape[0]
 
-    # Single linkage for both rows and columns (matrix is symmetric)
+    # Default color scale: [0, max off-diagonal]
+    vmin = 0.0 if args.vmin is None else float(args.vmin)
+    if args.vmax is None:
+        # exclude diagonal from max computation
+        A_off = A.copy()
+        np.fill_diagonal(A_off, np.nan)
+        vmax = float(np.nanmax(A_off)) if np.isfinite(np.nanmax(A_off)) else 0.0
+    else:
+        vmax = float(args.vmax)
+    if not np.isfinite(vmax):
+        vmax = 0.0
+    if vmax <= vmin:
+        vmax = vmin + 1e-9  # avoid invalid range
+
+    # Linkage for rows/columns (same because D is symmetric)
+    condensed = squareform(A, checks=False)  # symmetry already validated
     Z = linkage(condensed, method=args.method, optimal_ordering=args.optimal_ordering)
 
+    # Plot
     out_path = Path(args.out)
     plot_clustered_heatmap(
         dist=dist_df, Z_rows=Z, Z_cols=Z, out_path=out_path,
-        cmap=args.cmap, vmin=args.vmin, vmax=args.vmax,
+        cmap=args.cmap, vmin=vmin, vmax=vmax,
         title=args.title, show_ticks=not args.no_ticklabels
     )
-
     print(f"Wrote clustered heatmap: {out_path}")
 
 if __name__ == "__main__":
