@@ -18,7 +18,8 @@ if not SAMPLES_bams and not SAMPLES_reads:
 # Generate output
 rule all:
     input:
-        "distance_matrix.txt"
+        "distance_matrix.txt",
+        "distance.png"
 
 # Rules
 rule bam_to_fastq:
