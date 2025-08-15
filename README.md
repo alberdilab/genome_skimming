@@ -13,7 +13,7 @@ mv genome_skimming [project_name]
 cd [project_name]
 ```
 
-Download Snakemake wrappers to avoid connection issues.
+Download Snakemake wrappers to avoid connection issues before launching the pipeline.
 
 ```
 git clone --depth 1 --branch v7.2.0 https://github.com/snakemake/snakemake-wrappers.git  workflow/wrappers/v7.2.0
