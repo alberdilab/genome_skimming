@@ -113,3 +113,23 @@ rule skmer_distance:
         """
         skmer distance {params.inputdir} -p {threads} -o {params.outputbase}
         """
+
+rule skmer_distance:
+    input:
+        "distance_matrix.txt"
+    output:
+        "distance.png"
+    log:
+        "logs/skmer/distance.log"
+    threads: 1
+    conda:
+        "envs/plot.yml"
+    params:
+        outputbase="distance_matrix"
+    resources:
+        mem_mb=lambda wildcards, input, attempt: 4*1024,
+        runtime=lambda wildcards, input, attempt: 5
+    shell:
+        """
+        python scripts/pcoa_from_distance.py --dist {input} --out-prefix distance
+        """
