@@ -2,7 +2,7 @@ from pathlib import Path
 
 # Detect reads
 SAMPLES_reads = sorted({f.stem.rsplit("_", 1)[0] for f in Path("reads").glob("*_1.fq.gz")})
-SAMPLES_bams = sorted({f.stem.rsplit("_", 1)[0] for f in Path("mapped").glob("*.bam")})
+SAMPLES_bams = sorted({f.stem for f in Path("mapped").glob("*.bam")})
 
 if not SAMPLES_reads and SAMPLES_bams:
     print("Using sequencing reads for the genome skimming")
